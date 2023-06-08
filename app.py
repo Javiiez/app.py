@@ -1,18 +1,32 @@
 import bcrypt as bcrypt
 from flask import Flask, render_template, url_for, redirect
 from flask_sqlalchemy import SQLAlchemy
-from flask_login import UserMixin, login_user
+from flask_login import UserMixin, login_user, LoginManager, login_required, logout_user, current_user
 from flask_wtf import FlaskForm
 from wtforms import StringField, PasswordField, SubmitField
 from wtforms.validators import InputRequired, Length, ValidationError
+from flask_bcrypt import Bcrypt
+
 
 # Create Flask application instance
 app = Flask(__name__)
 db = SQLAlchemy()
+bcrypt = Bcrypt(app)
+db.init_app(app)
 
 # Configure database URI and secret key
-app.config['SQLALCHEMY_DATABASE_URI'] = 'sqlite:///database.db'
+app.config["SQLALCHEMY_DATABASE_URI"] = 'sqlite:///test.db'
 app.config['SECRET_KEY'] = 'thisisasecretkey'
+
+
+login_manager = LoginManager()
+login_manager.init_app(app)
+login_manager.login_view = "login"
+
+
+@login_manager.user_loader
+def load_user(user_id):
+    return User.query.get(int(user_id))
 
 
 # User model representing the User table in the database
@@ -42,6 +56,16 @@ def validate_username(self, username):
             'That username already exists. Please choose a different one.')
 
 
+class LoginForm(FlaskForm):
+    username = StringField(validators=[InputRequired(), Length(
+        min=4, max=20)], render_kw={"placeholder": "Username"})
+
+    password = PasswordField(validators=[InputRequired(), Length(
+        min=8, max=20)], render_kw={"placeholder": "Password"})
+
+    submit = SubmitField('Login')
+
+
 # Home route
 @app.route('/')
 def home():
@@ -53,7 +77,7 @@ def home():
 # Login route
 @app.route('/login', methods=['GET', 'POST'])
 def login():
-    url_for('register')  # Generates URL for 'register' route
+    url_for('login')  # Generates URL for 'login' route
     form = LoginForm()
 
     if form.validate_on_submit():
@@ -63,16 +87,33 @@ def login():
                 login_user(user)
                 return redirect(url_for('dashboard'))  # Redirects to 'dashboard' route
 
-        return render_template('login.html', form=form)
-
     return render_template('login.html', form=form)
+
+
+@app.route('/dashboard', methods=['GET', 'POST'])
+@login_required
+def dashboard():
+    return render_template('dashboard.html')
+
+
+@app.route('/logout', methods=['GET', 'POST'])
+@login_required
+def logout():
+    logout_user()
+    return redirect(url_for('login'))
 
 
 # Register route
 @app.route('/register', methods=['GET', 'POST'])
 def register():
-    url_for('login')  # Generates URL for 'login' route
     form = RegisterForm()
+
+    if form.validate_on_submit():
+        hashed_password = bcrypt.generate_password_hash(form.password.data)
+        new_user = User(username=form.username.data, password=hashed_password)
+        db.session.add(new_user)
+        db.session.commit()
+        return redirect(url_for('login'))
 
     return render_template('register.html', form=form)
 
